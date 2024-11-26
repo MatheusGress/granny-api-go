@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 
@@ -19,39 +18,7 @@ type Client struct {
 	Birthdate string `json:"birthdate"`
 }
 
-const jsonFile = "clients.json"
-
-// Carregar clientes do arquivo JSON
-func loadClients() ([]Client, error) {
-	var clients []Client
-
-	file, err := ioutil.ReadFile(jsonFile)
-	if err != nil {
-		return nil, err
-	}
-
-	err = json.Unmarshal(file, &clients)
-	if err != nil {
-		return nil, err
-	}
-
-	return clients, nil
-}
-
-// Salvar clientes no arquivo JSON
-func saveClients(clients []Client) error {
-	file, err := json.MarshalIndent(clients, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(jsonFile, file, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+var clientDb = make(map[int]Client)
 
 func main() {
 	router := mux.NewRouter()
@@ -65,76 +32,30 @@ func main() {
 	http.ListenAndServe(":5000", router)
 }
 
-func GetClients(w http.ResponseWriter, r *http.Request) {
-	clients, err := loadClients()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(clients)
-}
-
-func GetClient(w http.ResponseWriter, r *http.Request) {
-	clientId := mux.Vars(r)["clientId"]
-
-	intClientId, err := strconv.Atoi(clientId)
-	if err != nil {
-		http.Error(w, "Invalid client ID", http.StatusBadRequest)
-		return
-	}
-
-	clients, err := loadClients()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	for _, client := range clients {
-		if client.ID == intClientId {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(client)
-			return
-		}
-	}
-
-	http.Error(w, "Client not found", http.StatusNotFound)
-}
-
 func CreateClient(w http.ResponseWriter, r *http.Request) {
 	var client Client
-
 	err := json.NewDecoder(r.Body).Decode(&client)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	clients, err := loadClients()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	client.ID = len(clients) + 1
-	clients = append(clients, client)
-
-	err = saveClients(clients)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	client.ID = len(clientDb) + 1
+	clientDb[client.ID] = client
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(client)
 }
 
-func UpdateClient(w http.ResponseWriter, r *http.Request) {
-	clientId := mux.Vars(r)["clientId"]
+func GetClients(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(clientDb)
+}
+
+func GetClient(w http.ResponseWriter, r *http.Request) {
+	var clientId = mux.Vars(r)["clientId"]
 
 	intClientId, err := strconv.Atoi(clientId)
 	if err != nil {
@@ -142,54 +63,64 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clients, err := loadClients()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	client, exists := clientDb[intClientId]
+	if !exists {
+		http.Error(w, "Client not found", http.StatusNotFound)
 		return
 	}
 
-	for i, client := range clients {
-		if client.ID == intClientId {
-			var updatedClient Client
-			err := json.NewDecoder(r.Body).Decode(&updatedClient)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(client)
+}
 
-			if updatedClient.Name != "" {
-				client.Name = updatedClient.Name
-			}
-			if updatedClient.Email != "" {
-				client.Email = updatedClient.Email
-			}
-			if updatedClient.Phone != "" {
-				client.Phone = updatedClient.Phone
-			}
-			if updatedClient.Birthdate != "" {
-				client.Birthdate = updatedClient.Birthdate
-			}
+func UpdateClient(w http.ResponseWriter, r *http.Request) {
+	var clientId = mux.Vars(r)["clientId"]
 
-			clients[i] = client
-
-			err = saveClients(clients)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(client)
-			return
-		}
+	intClientId, err := strconv.Atoi(clientId)
+	if err != nil {
+		http.Error(w, "Invalid client ID", http.StatusBadRequest)
+		return
 	}
 
-	http.Error(w, "Client not found", http.StatusNotFound)
+	client, exists := clientDb[intClientId]
+	if !exists {
+		http.Error(w, "Client not found", http.StatusNotFound)
+		return
+	}
+
+	var updatedClient Client
+	err = json.NewDecoder(r.Body).Decode(&updatedClient)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if updatedClient.Name != "" {
+		client.Name = updatedClient.Name
+	}
+	if updatedClient.CPF != "" {
+		client.CPF = updatedClient.CPF
+	}
+	if updatedClient.Email != "" {
+		client.Email = updatedClient.Email
+	}
+	if updatedClient.Phone != "" {
+		client.Phone = updatedClient.Phone
+	}
+	if updatedClient.Birthdate != "" {
+		client.Birthdate = updatedClient.Birthdate
+	}
+
+	clientDb[intClientId] = client
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(client)
 }
 
 func DeleteClient(w http.ResponseWriter, r *http.Request) {
-	clientId := mux.Vars(r)["clientId"]
+	var clientId = mux.Vars(r)["clientId"]
 
 	intClientId, err := strconv.Atoi(clientId)
 	if err != nil {
@@ -197,23 +128,10 @@ func DeleteClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clients, err := loadClients()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if _, exists := clientDb[intClientId]; exists {
+		delete(clientDb, intClientId)
+		w.WriteHeader(http.StatusNoContent)
 		return
-	}
-
-	for i, client := range clients {
-		if client.ID == intClientId {
-			clients = append(clients[:i], clients[i+1:]...)
-			err = saveClients(clients)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 	}
 
 	http.Error(w, "Client not found", http.StatusNotFound)
